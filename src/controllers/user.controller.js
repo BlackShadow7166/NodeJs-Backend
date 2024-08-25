@@ -2,7 +2,8 @@ import promisesWrapper from "../utils/promisesWrapper.js";
 import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import { uploadToCloudnary } from "../utils/cloudinary.js";
-import { ApiResponse } from "../utils/ApiResponse.js"
+import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken";
 
 
 const generateAccessAndRefreshToken = async (uid) => {
@@ -180,8 +181,56 @@ const logoutUser = promisesWrapper(async (req ,res ,next) => {
     )
 })
 
+const refreshAccessToken = promisesWrapper(async (req,res,next) => {
+    const incommingRefreshToken  = req.cookies?.refreshToken || req.body?.refreshToken;
+
+    if(!incommingRefreshToken){
+        new ApiError(400,"Refresh Token not found");
+    }
+
+    const decodedToken =  jwt.verify(incommingRefreshToken,process.env.REFRESH_TOKEN_SECRET);
+
+    if(!decodedToken){
+        new ApiError(401,"Invalid Refresh Token")
+    }
+
+    const user =  await User.findById(decodedToken?._id);
+
+    if(!user){
+        new ApiError(402,"Invalid Refresh Token");
+    }
+
+    if(user.refreshToken !== incommingRefreshToken){
+        new ApiError(401, "Unauthorized Request");
+    }
+
+    const { accessToken , newrefreshToken } = await generateAccessAndRefreshToken(user._id);
+
+    const options = {
+        httpOnly : true,
+        secure : true,
+    }
+
+    return res.status(200).
+    cookie(accessToken,accessToken,options).
+    cookie(refreshToken,newrefreshToken,options).
+    json(
+        new ApiResponse(
+            201,
+            {
+                accessToken : accessToken,
+                refreshToken : newrefreshToken
+            },
+            "Access token is refreshed successfully"
+        )
+    )
+
+
+})
+
 export {
     registerUser,
     loginUser,
-    logoutUser
+    logoutUser,
+    refreshAccessToken
 };
